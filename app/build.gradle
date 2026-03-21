@@ -17,12 +17,6 @@ android {
     buildTypes {
         debug {
             debuggable true
-            applicationIdSuffix ".debug"
-        }
-        release {
-            minifyEnabled false
-            // Use debug signing so the APK can be sideloaded without a keystore
-            signingConfig signingConfigs.debug
         }
     }
 
