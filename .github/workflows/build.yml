@@ -19,29 +19,27 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ubuntu-latest ships with Android SDK at $ANDROID_HOME
-      # We just need to install the right platform + build-tools
-      - name: Install Android SDK components
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "platforms;android-34" \
-            "build-tools;34.0.0" \
-            "platform-tools"
-
-      # Tell AGP where the SDK lives
+      # ubuntu-latest already has Android SDK, platform-tools,
+      # build-tools;34.0.0, and platforms;android-34 pre-installed.
+      # We just need to point AGP at it.
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-      # Download Gradle 8.6 directly — no wrapper needed
-      - name: Install Gradle 8.6
+      - name: Debug SDK layout
         run: |
-          curl -sL https://services.gradle.org/distributions/gradle-8.6-bin.zip -o gradle.zip
-          unzip -q gradle.zip -d /opt/gradle
-          echo "/opt/gradle/gradle-8.6/bin" >> $GITHUB_PATH
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME"
+          ls "$ANDROID_HOME/build-tools" || true
+          ls "$ANDROID_HOME/platforms"   || true
+
+      - name: Download Gradle 8.6
+        run: |
+          curl -sL https://services.gradle.org/distributions/gradle-8.6-bin.zip \
+               -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /opt/gradle
 
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: /opt/gradle/gradle-8.6/bin/gradle assembleDebug --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
