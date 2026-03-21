@@ -3,7 +3,7 @@ name: Build APK
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:          # allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,16 +19,29 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest ships with Android SDK at $ANDROID_HOME
+      # We just need to install the right platform + build-tools
+      - name: Install Android SDK components
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "platform-tools"
 
-      - name: Set up Gradle 8.6
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.6
+      # Tell AGP where the SDK lives
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      # Download Gradle 8.6 directly — no wrapper needed
+      - name: Install Gradle 8.6
+        run: |
+          curl -sL https://services.gradle.org/distributions/gradle-8.6-bin.zip -o gradle.zip
+          unzip -q gradle.zip -d /opt/gradle
+          echo "/opt/gradle/gradle-8.6/bin" >> $GITHUB_PATH
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
