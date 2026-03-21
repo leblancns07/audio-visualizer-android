@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Audio Visualizer</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#a78bfa">
+
+<!-- iOS PWA -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Visualizer">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* ── Overlay ── */
+  #start-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10,10,15,0.92);
+    z-index: 10;
+    gap: 16px;
+    padding: 24px;
+  }
+
+  #start-overlay h1 {
+    font-size: clamp(1.2rem, 6vw, 2rem);
+    letter-spacing: 0.3em;
+    color: #a78bfa;
+    text-transform: uppercase;
+    text-align: center;
+  }
+
+  #start-overlay p { color: #666; font-size: 0.85rem; letter-spacing: 0.1em; text-align: center; }
+
+  #start-btn {
+    margin-top: 8px;
+    padding: 14px 40px;
+    background: transparent;
+    border: 1px solid #a78bfa;
+    color: #a78bfa;
+    font-family: inherit;
+    font-size: 1rem;
+    letter-spacing: 0.2em;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #start-btn:hover, #start-btn:active { background: #a78bfa22; box-shadow: 0 0 20px #a78bfa44; }
+
+  /* ── Controls shell ── */
+  #controls {
+    background: #0e0e16;
+    border-top: 1px solid #1e1e2e;
+    user-select: none;
+    flex-shrink: 0;
+    transition: max-height 0.3s cubic-bezier(.4,0,.2,1);
+    overflow: hidden;
+  }
+
+  /* ── Collapse toggle ── */
+  #controls-handle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px 6px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    gap: 12px;
+  }
+
+  #controls-handle:active { background: #ffffff08; }
+
+  #handle-chevron {
+    font-size: 0.65rem;
+    color: #444;
+    transition: transform 0.3s;
+    flex-shrink: 0;
+  }
+
+  #controls.collapsed #handle-chevron { transform: rotate(180deg); }
+
+  #controls-inner {
+    overflow: hidden;
+    transition: max-height 0.3s cubic-bezier(.4,0,.2,1);
+  }
+
+  #controls.collapsed #controls-inner { max-height: 0 !important; }
+
+  /* ── Mode strip ── */
+  #mode-strip {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 0 16px 10px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #mode-strip::-webkit-scrollbar { display: none; }
+
+  .mode-btn {
+    padding: 7px 14px;
+    background: transparent;
+    border: 1px solid #1e1e2e;
+    color: #555;
+    font-family: inherit;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+    border-radius: 2px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mode-btn.active  { border-color: #a78bfa; color: #a78bfa; background: #a78bfa18; }
+  .mode-btn:active  { opacity: 0.7; }
+
+  /* ── Knob strip ── */
+  #knob-strip {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 4px 16px calc(12px + env(safe-area-inset-bottom));
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    align-items: flex-start;
+  }
+  #knob-strip::-webkit-scrollbar { display: none; }
+
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  /* Touch-friendly knob: 64px visual + padding for larger hit area */
+  .knob-wrapper {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    cursor: ns-resize;
+    touch-action: none;        /* prevent scroll-hijack on touch */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .knob-svg { width: 100%; height: 100%; }
+
+  .knob-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: #555;
+    text-transform: uppercase;
+    text-align: center;
+  }
+
+  .knob-value { font-size: 0.68rem; color: #888; text-align: center; min-width: 40px; }
+
+  /* ── Handle bar label + status row ── */
+  #handle-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow: hidden; }
+
+  #handle-mode-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    color: #444;
+    text-transform: uppercase;
+  }
+
+  #handle-mode-name {
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    color: #a78bfa;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.65rem;
+    color: #444;
+    letter-spacing: 0.1em;
+    flex-shrink: 0;
+  }
+
+  #status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #333;
+    transition: background 0.3s;
+    flex-shrink: 0;
+  }
+
+  #status-dot.active { background: #4ade80; box-shadow: 0 0 6px #4ade8088; }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+  <canvas id="canvas"></canvas>
+  <div id="start-overlay">
+    <h1>Audio Visualizer</h1>
+    <p>Microphone access required</p>
+    <button id="start-btn">Enable Microphone</button>
+  </div>
+</div>
+
+<div id="controls">
+
+  <!-- Tap this bar to collapse/expand the control panel -->
+  <div id="controls-handle">
+    <div id="handle-left">
+      <span id="handle-mode-label">Mode</span>
+      <span id="handle-mode-name">Bars</span>
+    </div>
+    <div id="status">
+      <div id="status-dot"></div>
+      <span id="status-text">Inactive</span>
+    </div>
+    <span id="handle-chevron">▲</span>
+  </div>
+
+  <div id="controls-inner">
+    <!-- Mode selector strip (horizontal scroll) -->
+    <div id="mode-strip">
+      <button class="mode-btn active" data-mode="bars">Bars</button>
+      <button class="mode-btn" data-mode="wave">Wave</button>
+      <button class="mode-btn" data-mode="circular">Radial</button>
+      <button class="mode-btn" data-mode="particles">Particles</button>
+      <button class="mode-btn" data-mode="spectrogram">Spectrogram</button>
+      <button class="mode-btn" data-mode="lissajous">Lissajous</button>
+      <button class="mode-btn" data-mode="blob">Blob</button>
+      <button class="mode-btn" data-mode="tunnel">Tunnel</button>
+      <button class="mode-btn" data-mode="constellation">Stars</button>
+    </div>
+
+    <!-- Knob strip (horizontal scroll) -->
+    <div id="knob-strip">
+      <div class="control-group">
+        <div class="knob-wrapper" data-param="gain" data-min="0.5" data-max="8" data-default="2">
+          <svg class="knob-svg" viewBox="0 0 64 64"></svg>
+        </div>
+        <div class="knob-label">Gain</div>
+        <div class="knob-value">2.0</div>
+      </div>
+
+      <div class="control-group">
+        <div class="knob-wrapper" data-param="smoothing" data-min="0" data-max="0.97" data-default="0.5">
+          <svg class="knob-svg" viewBox="0 0 64 64"></svg>
+        </div>
+        <div class="knob-label">Smooth</div>
+        <div class="knob-value">0.50</div>
+      </div>
+
+      <div class="control-group">
+        <div class="knob-wrapper" data-param="hue" data-min="0" data-max="360" data-default="270">
+          <svg class="knob-svg" viewBox="0 0 64 64"></svg>
+        </div>
+        <div class="knob-label">Hue</div>
+        <div class="knob-value">270°</div>
+      </div>
+
+      <div class="control-group">
+        <div class="knob-wrapper" data-param="detail" data-min="16" data-max="256" data-default="128" data-integer="true">
+          <svg class="knob-svg" viewBox="0 0 64 64"></svg>
+        </div>
+        <div class="knob-label">Detail</div>
+        <div class="knob-value">128</div>
+      </div>
+
+      <div class="control-group">
+        <div class="knob-wrapper" data-param="glow" data-min="0" data-max="40" data-default="12">
+          <svg class="knob-svg" viewBox="0 0 64 64"></svg>
+        </div>
+        <div class="knob-label">Glow</div>
+        <div class="knob-value">12</div>
+      </div>
+
+      <div class="control-group">
+        <div class="knob-wrapper" data-param="speed" data-min="0" data-max="3" data-default="0.5">
+          <svg class="knob-svg" viewBox="0 0 64 64"></svg>
+        </div>
+        <div class="knob-label">Speed</div>
+        <div class="knob-value">0.5</div>
+      </div>
+
+      <div class="control-group">
+        <div class="knob-wrapper" data-param="mirror" data-min="0" data-max="1" data-default="0">
+          <svg class="knob-svg" viewBox="0 0 64 64"></svg>
+        </div>
+        <div class="knob-label">Mirror</div>
+        <div class="knob-value">Off</div>
+      </div>
+
+      <div class="control-group">
+        <div class="knob-wrapper" data-param="zoom" data-min="0.5" data-max="3" data-default="1">
+          <svg class="knob-svg" viewBox="0 0 64 64"></svg>
+        </div>
+        <div class="knob-label">Zoom</div>
+        <div class="knob-value">1.0</div>
+      </div>
+    </div><!-- /knob-strip -->
+  </div><!-- /controls-inner -->
+
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+const params = {
+  gain: 2,
+  smoothing: 0.5,
+  hue: 270,
+  detail: 128,
+  glow: 12,
+  speed: 0.5,
+  mirror: 0,
+  zoom: 1,
+};
+
+let mode = 'bars';
+let audioCtx = null;
+let analyser = null;
+let gainNode = null;
+let animId = null;
+let rotation = 0;
+
+// Per-mode state
+const particles = [];           // used by "particles" mode
+const stars = [];               // used by "constellation" mode
+let spectroOffscreen = null;    // used by "spectrogram" mode
+let spectroCtx = null;
+let blobNoise = [];             // used by "blob" mode
+let tunnelPhase = 0;            // used by "tunnel" mode
+let lissPhase = 0;              // used by "lissajous" mode
+
+const MAX_PARTICLES = 200;
+const MAX_STARS = 160;
+
+// ─── Canvas setup ─────────────────────────────────────────────────────────────
+const container = document.getElementById('canvas-container');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width  = container.clientWidth;
+  canvas.height = container.clientHeight;
+  spectroOffscreen = null; // force recreate on next frame
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── Mic init ─────────────────────────────────────────────────────────────────
+document.getElementById('start-btn').addEventListener('click', async () => {
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw Object.assign(
+        new Error(
+          'Microphone API unavailable — page must be served over HTTPS.\n\n' +
+          'You are likely accessing via http:// on a non-localhost address.\n\n' +
+          'Open the address using https:// and accept the self-signed cert warning\n' +
+          '(tap "Advanced → Proceed" or "Visit site" in your browser).'
+        ),
+        { name: 'InsecureContextError' }
+      );
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    audioCtx = new AudioContext({ latencyHint: 'interactive' });
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = params.smoothing;
+
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = params.gain;
+
+    const src = audioCtx.createMediaStreamSource(stream);
+    src.connect(gainNode);
+    gainNode.connect(analyser);
+
+    document.getElementById('start-overlay').style.display = 'none';
+    document.getElementById('status-dot').classList.add('active');
+    document.getElementById('status-text').textContent = 'Live';
+
+    render();
+  } catch (e) {
+    const msg = e.name === 'NotAllowedError'
+      ? 'Microphone permission denied.\n\nTo fix:\n1. Tap the lock/info icon in your browser address bar\n2. Set Microphone → Allow\n3. Refresh the page'
+      : e.name === 'InsecureContextError'
+        ? e.message
+        : 'Could not access microphone: ' + e.message;
+    document.getElementById('start-overlay').innerHTML = `
+      <h1 style="color:#f87171">Permission Denied</h1>
+      <p style="color:#888;font-size:0.8rem;max-width:420px;text-align:center;line-height:1.7">${msg.replace(/\n/g,'<br>')}</p>
+      <button id="start-btn" style="margin-top:8px;padding:12px 36px;background:transparent;border:1px solid #a78bfa;color:#a78bfa;font-family:inherit;font-size:0.9rem;letter-spacing:0.2em;cursor:pointer;text-transform:uppercase">Try Again</button>
+    `;
+    document.getElementById('start-btn').addEventListener('click', () => location.reload());
+  }
+});
+
+// ─── Render loop ──────────────────────────────────────────────────────────────
+function render() {
+  animId = requestAnimationFrame(render);
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  if (analyser) {
+    analyser.smoothingTimeConstant = params.smoothing;
+    analyser.fftSize = nextPow2(params.detail) * 2;
+  }
+  if (gainNode) gainNode.gain.value = params.gain;
+
+  const bufLen = analyser ? analyser.frequencyBinCount : 128;
+  const freqData = new Uint8Array(bufLen);
+  const timeData = new Uint8Array(analyser ? analyser.fftSize : 256);
+  if (analyser) {
+    analyser.getByteFrequencyData(freqData);
+    analyser.getByteTimeDomainData(timeData);
+  }
+
+  const hue    = params.hue;
+  const glow   = params.glow;
+  const zoom   = params.zoom;
+  const mirror = params.mirror > 0.5;
+
+  // Spectrogram handles its own clear; tunnel handles its own fade
+  const needsFade = mode !== 'spectrogram';
+  if (needsFade) {
+    const fadeAlpha = mode === 'tunnel' ? 0.08 : mode === 'lissajous' ? 0.06 : 0.18;
+    ctx.fillStyle = `rgba(10,10,15,${fadeAlpha})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-W / 2, -H / 2);
+
+  if      (mode === 'bars')          drawBars(W, H, freqData, hue, glow, mirror);
+  else if (mode === 'wave')          drawWave(W, H, timeData, freqData, hue, glow, mirror);
+  else if (mode === 'circular')      drawCircular(W, H, freqData, hue, glow);
+  else if (mode === 'particles')     drawParticles(W, H, freqData, timeData, hue, glow);
+  else if (mode === 'spectrogram')   drawSpectrogram(W, H, freqData, hue);
+  else if (mode === 'lissajous')     drawLissajous(W, H, timeData, freqData, hue, glow);
+  else if (mode === 'blob')          drawBlob(W, H, freqData, hue, glow);
+  else if (mode === 'tunnel')        drawTunnel(W, H, freqData, hue, glow);
+  else if (mode === 'constellation') drawConstellation(W, H, freqData, hue, glow);
+
+  ctx.restore();
+
+  rotation   += params.speed * 0.002;
+  tunnelPhase += params.speed * 0.008;
+  lissPhase  += params.speed * 0.003;
+}
+
+function nextPow2(n) {
+  let p = 16;
+  while (p < n) p *= 2;
+  return Math.min(p, 1024);
+}
+
+// ─── Energy helpers ────────────────────────────────────────────────────────────
+function bandEnergy(freqData, lo, hi) {
+  const start = Math.floor(lo * freqData.length);
+  const end   = Math.floor(hi * freqData.length);
+  let sum = 0;
+  for (let i = start; i < end; i++) sum += freqData[i];
+  return sum / ((end - start) * 255);
+}
+
+// ─── Bars ─────────────────────────────────────────────────────────────────────
+function drawBars(W, H, freqData, hue, glow, mirror) {
+  const count = Math.min(freqData.length, 120);
+  const barW  = (W / count) * 0.75;
+  const gap   = (W / count) * 0.25;
+
+  ctx.shadowBlur = glow;
+
+  for (let i = 0; i < count; i++) {
+    const val  = freqData[i] / 255;
+    const barH = val * H * 0.85;
+    const x    = i * (barW + gap) + gap / 2;
+    const h    = (hue + i * 1.2) % 360;
+    const sat  = 60 + val * 40;
+    const lit  = 40 + val * 30;
+
+    ctx.shadowColor = `hsl(${h},${sat}%,${lit}%)`;
+    const grad = ctx.createLinearGradient(0, H, 0, H - barH);
+    grad.addColorStop(0, `hsla(${h},${sat}%,${lit}%,0.9)`);
+    grad.addColorStop(1, `hsla(${(h+40)%360},${sat}%,${lit+15}%,0.6)`);
+    ctx.fillStyle = grad;
+
+    ctx.fillRect(x, H - barH, barW, barH);
+    if (mirror) ctx.fillRect(x, 0, barW, barH);
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+// ─── Wave ─────────────────────────────────────────────────────────────────────
+function drawWave(W, H, timeData, freqData, hue, glow, mirror) {
+  const energy = bandEnergy(freqData, 0, 1);
+  const sat = 50 + energy * 50;
+  const lit = 40 + energy * 30;
+
+  ctx.shadowBlur  = glow * (0.5 + energy);
+  ctx.shadowColor = `hsl(${hue},${sat}%,${lit}%)`;
+
+  const drawLine = (yOff, flip) => {
+    ctx.beginPath();
+    ctx.lineWidth = 2;
+    const grad = ctx.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0,   `hsla(${hue},${sat}%,${lit}%,0)`);
+    grad.addColorStop(0.1, `hsla(${hue},${sat}%,${lit}%,1)`);
+    grad.addColorStop(0.9, `hsla(${(hue+60)%360},${sat}%,${lit}%,1)`);
+    grad.addColorStop(1,   `hsla(${(hue+60)%360},${sat}%,${lit}%,0)`);
+    ctx.strokeStyle = grad;
+
+    for (let i = 0; i < timeData.length; i++) {
+      const x   = (i / timeData.length) * W;
+      const raw = (timeData[i] / 128) - 1;
+      const y   = yOff + raw * H * 0.3 * (flip ? -1 : 1);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  };
+
+  drawLine(H / 2, false);
+  if (mirror) drawLine(H / 2, true);
+  ctx.shadowBlur = 0;
+}
+
+// ─── Circular ─────────────────────────────────────────────────────────────────
+function drawCircular(W, H, freqData, hue, glow) {
+  const cx    = W / 2, cy = H / 2;
+  const baseR = Math.min(W, H) * 0.18;
+  const count = Math.min(freqData.length, 180);
+
+  ctx.shadowBlur = glow;
+
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + rotation;
+    const val   = freqData[i] / 255;
+    const len   = val * Math.min(W, H) * 0.28;
+    const h     = (hue + i * 2) % 360;
+    const sat   = 60 + val * 40;
+    const lit   = 40 + val * 30;
+
+    ctx.shadowColor  = `hsl(${h},${sat}%,${lit}%)`;
+    ctx.strokeStyle  = `hsla(${h},${sat}%,${lit}%,${0.6 + val * 0.4})`;
+    ctx.lineWidth    = 2.5;
+
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle) * baseR,       cy + Math.sin(angle) * baseR);
+    ctx.lineTo(cx + Math.cos(angle) * (baseR+len), cy + Math.sin(angle) * (baseR+len));
+    ctx.stroke();
+  }
+
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR);
+  grad.addColorStop(0, `hsla(${hue},80%,70%,0.15)`);
+  grad.addColorStop(1, `hsla(${hue},80%,50%,0)`);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+}
+
+// ─── Particles ────────────────────────────────────────────────────────────────
+function drawParticles(W, H, freqData, timeData, hue, glow) {
+  const bass   = bandEnergy(freqData, 0, 0.05);
+  const treble = bandEnergy(freqData, 0.7, 1);
+
+  const spawnCount = Math.floor(bass * 8);
+  for (let s = 0; s < spawnCount && particles.length < MAX_PARTICLES; s++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + bass * 4 + Math.random() * 2;
+    particles.push({
+      x: W/2 + (Math.random()-0.5)*40, y: H/2 + (Math.random()-0.5)*40,
+      vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
+      life: 1, decay: 0.008 + Math.random()*0.015,
+      size: 2 + Math.random()*4 + bass*5,
+      hue: (hue + Math.random()*60 - 30 + treble*80) % 360,
+    });
+  }
+
+  ctx.shadowBlur = glow;
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.98; p.vy *= 0.98;
+    p.vy += 0.04;
+    p.life -= p.decay;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    const lit = 50 + p.life * 30;
+    ctx.shadowColor = `hsl(${p.hue},80%,${lit}%)`;
+    ctx.fillStyle   = `hsla(${p.hue},80%,${lit}%,${p.life})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+}
+
+// ─── Spectrogram ──────────────────────────────────────────────────────────────
+function drawSpectrogram(W, H, freqData, hue) {
+  // Initialise / resize offscreen buffer
+  if (!spectroOffscreen || spectroOffscreen.width !== W || spectroOffscreen.height !== H) {
+    spectroOffscreen = document.createElement('canvas');
+    spectroOffscreen.width  = W;
+    spectroOffscreen.height = H;
+    spectroCtx = spectroOffscreen.getContext('2d');
+    spectroCtx.fillStyle = '#0a0a0f';
+    spectroCtx.fillRect(0, 0, W, H);
+  }
+
+  // Shift existing content left by 1px
+  spectroCtx.drawImage(spectroOffscreen, -1, 0);
+
+  // Draw new column of frequency data on the right edge
+  const binH = H / freqData.length;
+  for (let i = 0; i < freqData.length; i++) {
+    const val = freqData[i] / 255;
+    if (val < 0.01) continue;
+    const y   = H - (i + 1) * binH;
+    const h   = (hue + i * 0.8 + val * 80) % 360;
+    const sat = 70 + val * 30;
+    const lit = 15 + val * 65;
+    spectroCtx.fillStyle = `hsl(${h},${sat}%,${lit}%)`;
+    spectroCtx.fillRect(W - 1, y, 1, Math.ceil(binH) + 1);
+  }
+
+  // Blit to main canvas
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(spectroOffscreen, 0, 0);
+}
+
+// ─── Lissajous ────────────────────────────────────────────────────────────────
+function drawLissajous(W, H, timeData, freqData, hue, glow) {
+  const cx     = W / 2, cy = H / 2;
+  const energy = bandEnergy(freqData, 0, 1);
+  const scale  = Math.min(W, H) * 0.38 * params.zoom;
+
+  ctx.shadowBlur = glow * (0.5 + energy);
+
+  // Use time-domain: interleave two phase-offset windows for X/Y
+  const N     = timeData.length;
+  const shift = Math.floor(N * 0.25); // quarter-period shift for Y
+
+  ctx.beginPath();
+  ctx.lineWidth = 1.5;
+
+  for (let i = 0; i < N; i++) {
+    const x = ((timeData[i] / 128) - 1) * scale;
+    const j = (i + shift) % N;
+    const y = ((timeData[j] / 128) - 1) * scale;
+    const t = i / N;
+    const h = (hue + t * 120 + lissPhase * 30) % 360;
+
+    if (i === 0) {
+      ctx.moveTo(cx + x, cy + y);
+    } else {
+      ctx.lineTo(cx + x, cy + y);
+    }
+
+    // Break path every 64 points to vary colour
+    if (i % 64 === 63) {
+      ctx.shadowColor  = `hsl(${h},80%,60%)`;
+      ctx.strokeStyle  = `hsla(${h},80%,60%,0.85)`;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx + x, cy + y);
+    }
+  }
+  ctx.shadowColor  = `hsl(${hue},80%,60%)`;
+  ctx.strokeStyle  = `hsla(${hue},80%,60%,0.85)`;
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+}
+
+// ─── Blob ─────────────────────────────────────────────────────────────────────
+function drawBlob(W, H, freqData, hue, glow) {
+  const cx     = W / 2, cy = H / 2;
+  const bass   = bandEnergy(freqData, 0,    0.08);
+  const mid    = bandEnergy(freqData, 0.08, 0.4);
+  const treble = bandEnergy(freqData, 0.4,  1);
+  const baseR  = Math.min(W, H) * 0.22;
+  const POINTS = 64;
+
+  // Init noise if needed
+  if (blobNoise.length !== POINTS) {
+    blobNoise = Array.from({length: POINTS}, () => Math.random() * Math.PI * 2);
+  }
+
+  // Evolve noise offsets
+  for (let i = 0; i < POINTS; i++) {
+    blobNoise[i] += params.speed * 0.018 * (0.5 + mid);
+  }
+
+  const points = [];
+  for (let i = 0; i < POINTS; i++) {
+    const angle   = (i / POINTS) * Math.PI * 2;
+    // Distort radius: base + bass pulse + per-point noise + freq band slice
+    const freqIdx = Math.floor((i / POINTS) * freqData.length * 0.6);
+    const freqAmp = (freqData[freqIdx] / 255);
+    const noise   = Math.sin(blobNoise[i]) * 0.5 + 0.5;
+    const r = baseR
+      + bass   * baseR * 0.6
+      + freqAmp * baseR * 0.55
+      + noise  * baseR * 0.12 * (1 + treble);
+    points.push({ x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r });
+  }
+
+  // Draw smooth closed curve via catmull-rom
+  ctx.shadowBlur = glow * (0.6 + bass);
+  ctx.shadowColor = `hsl(${hue},80%,60%)`;
+
+  const sat = 65 + bass * 35;
+  const lit = 40 + bass * 25;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 1.8);
+  grad.addColorStop(0,   `hsla(${(hue+40)%360},${sat}%,${lit+20}%,0.6)`);
+  grad.addColorStop(0.6, `hsla(${hue},${sat}%,${lit}%,0.5)`);
+  grad.addColorStop(1,   `hsla(${(hue+180)%360},${sat}%,${lit}%,0)`);
+
+  ctx.beginPath();
+  const n = points.length;
+  for (let i = 0; i < n; i++) {
+    const p0 = points[(i - 1 + n) % n];
+    const p1 = points[i];
+    const p2 = points[(i + 1) % n];
+    const p3 = points[(i + 2) % n];
+    // Catmull-Rom control points
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    if (i === 0) ctx.moveTo(p1.x, p1.y);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = `hsla(${hue},90%,70%,0.6)`;
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+}
+
+// ─── Tunnel ───────────────────────────────────────────────────────────────────
+function drawTunnel(W, H, freqData, hue, glow) {
+  const cx    = W / 2, cy = H / 2;
+  const bass  = bandEnergy(freqData, 0, 0.1);
+  const RINGS = 18;
+  const maxR  = Math.sqrt(cx*cx + cy*cy) * 1.1;
+
+  ctx.shadowBlur = glow;
+
+  for (let r = RINGS; r >= 0; r--) {
+    // Phase-offset so rings appear to zoom toward viewer
+    const phase = ((r / RINGS) + tunnelPhase) % 1;
+    const radius = phase * maxR;
+    const freqIdx = Math.floor((1 - phase) * freqData.length * 0.7);
+    const energy  = (freqData[freqIdx] / 255);
+    const angle   = rotation * (r % 2 === 0 ? 1 : -1);
+
+    const h   = (hue + r * 15 + phase * 60) % 360;
+    const sat = 70 + energy * 30;
+    const lit = 20 + energy * 50;
+    const alpha = (1 - phase) * (0.5 + energy * 0.5);
+
+    ctx.shadowColor = `hsl(${h},${sat}%,${lit}%)`;
+
+    // Draw hexagonal ring (6 sides)
+    const sides = 6;
+    ctx.beginPath();
+    for (let s = 0; s <= sides; s++) {
+      const a = (s / sides) * Math.PI * 2 + angle;
+      // Slight frequency-driven distortion per vertex
+      const vIdx = Math.floor(s / sides * freqData.length);
+      const dist = radius * (1 + (freqData[vIdx % freqData.length] / 255) * 0.12 * bass);
+      const x = cx + Math.cos(a) * dist;
+      const y = cy + Math.sin(a) * dist;
+      s === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.lineWidth = 1.5 + energy * 2;
+    ctx.strokeStyle = `hsla(${h},${sat}%,${lit}%,${alpha})`;
+    ctx.stroke();
+  }
+
+  // Center glow
+  const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR * 0.15);
+  cg.addColorStop(0, `hsla(${hue},90%,80%,${0.15 + bass * 0.35})`);
+  cg.addColorStop(1, `hsla(${hue},90%,50%,0)`);
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.arc(cx, cy, maxR * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+}
+
+// ─── Constellation ────────────────────────────────────────────────────────────
+function drawConstellation(W, H, freqData, hue, glow) {
+  const bass   = bandEnergy(freqData, 0,   0.06);
+  const energy = bandEnergy(freqData, 0,   1);
+  const mid    = bandEnergy(freqData, 0.1, 0.5);
+
+  // Spawn stars up to max
+  while (stars.length < MAX_STARS) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      size: 1 + Math.random() * 2,
+      hue: (hue + Math.random() * 80 - 40) % 360,
+      brightness: 0.4 + Math.random() * 0.6,
+    });
+  }
+
+  // Update stars
+  const speedMult = 1 + bass * 6 + params.speed;
+  for (const s of stars) {
+    s.x += s.vx * speedMult;
+    s.y += s.vy * speedMult;
+    // Wrap around edges
+    if (s.x < 0) s.x = W; if (s.x > W) s.x = 0;
+    if (s.y < 0) s.y = H; if (s.y > H) s.y = 0;
+  }
+
+  const connectDist = 80 + mid * 120;
+
+  ctx.shadowBlur = glow * 0.5;
+
+  // Draw connections
+  for (let i = 0; i < stars.length; i++) {
+    for (let j = i + 1; j < stars.length; j++) {
+      const dx = stars[i].x - stars[j].x;
+      const dy = stars[i].y - stars[j].y;
+      const d  = Math.sqrt(dx*dx + dy*dy);
+      if (d > connectDist) continue;
+
+      const alpha = (1 - d / connectDist) * 0.5 * (0.5 + energy);
+      const h     = ((stars[i].hue + stars[j].hue) / 2) % 360;
+      ctx.strokeStyle = `hsla(${h},70%,65%,${alpha})`;
+      ctx.lineWidth   = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(stars[i].x, stars[i].y);
+      ctx.lineTo(stars[j].x, stars[j].y);
+      ctx.stroke();
+    }
+  }
+
+  // Draw stars
+  ctx.shadowBlur = glow;
+  for (const s of stars) {
+    const pulse = s.brightness * (0.7 + energy * 0.5);
+    const r     = s.size * (1 + bass * 1.5);
+    const lit   = 60 + pulse * 30;
+    ctx.shadowColor = `hsl(${s.hue},80%,${lit}%)`;
+    ctx.fillStyle   = `hsla(${s.hue},80%,${lit}%,${pulse})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+// ─── Knobs ────────────────────────────────────────────────────────────────────
+const START_ANGLE = 135 * (Math.PI / 180);
+const END_ANGLE   = 405 * (Math.PI / 180);
+const RANGE_ANGLE = END_ANGLE - START_ANGLE;
+
+function normalise(val, min, max) { return (val - min) / (max - min); }
+function lerp(t, min, max)        { return min + t * (max - min); }
+
+function buildKnobSVG(svgEl, t, hue) {
+  svgEl.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const cx = 32, cy = 32, r = 23;   // 64×64 viewBox
+
+  function arcPath(startA, endA) {
+    const x1 = cx + r * Math.cos(startA), y1 = cy + r * Math.sin(startA);
+    const x2 = cx + r * Math.cos(endA),   y2 = cy + r * Math.sin(endA);
+    const large = (endA - startA) > Math.PI ? 1 : 0;
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+  }
+
+  // Track
+  const track = document.createElementNS(ns, 'path');
+  track.setAttribute('d', arcPath(START_ANGLE, END_ANGLE));
+  track.setAttribute('fill', 'none');
+  track.setAttribute('stroke', '#1e1e2e');
+  track.setAttribute('stroke-width', '5');
+  track.setAttribute('stroke-linecap', 'round');
+  svgEl.appendChild(track);
+
+  // Filled arc
+  if (t > 0) {
+    const fill = document.createElementNS(ns, 'path');
+    fill.setAttribute('d', arcPath(START_ANGLE, START_ANGLE + t * RANGE_ANGLE));
+    fill.setAttribute('fill', 'none');
+    fill.setAttribute('stroke', `hsl(${hue},70%,60%)`);
+    fill.setAttribute('stroke-width', '5');
+    fill.setAttribute('stroke-linecap', 'round');
+    svgEl.appendChild(fill);
+  }
+
+  // Indicator dot
+  const dotAngle = START_ANGLE + t * RANGE_ANGLE;
+  const dot = document.createElementNS(ns, 'circle');
+  dot.setAttribute('cx', cx + (r - 1) * Math.cos(dotAngle));
+  dot.setAttribute('cy', cy + (r - 1) * Math.sin(dotAngle));
+  dot.setAttribute('r', '4');
+  dot.setAttribute('fill', `hsl(${hue},70%,70%)`);
+  svgEl.appendChild(dot);
+
+  // Inner glow disc
+  const glowC = document.createElementNS(ns, 'circle');
+  glowC.setAttribute('cx', cx); glowC.setAttribute('cy', cy);
+  glowC.setAttribute('r', r - 8);
+  glowC.setAttribute('fill', `hsla(${hue},60%,50%,${0.04 + t * 0.1})`);
+  glowC.setAttribute('stroke', `hsla(${hue},60%,50%,0.12)`);
+  glowC.setAttribute('stroke-width', '1');
+  svgEl.appendChild(glowC);
+}
+
+function formatValue(param, val) {
+  if (param === 'hue')    return `${Math.round(val)}°`;
+  if (param === 'mirror') return val > 0.5 ? 'On' : 'Off';
+  if (param === 'detail') return Math.round(val).toString();
+  if (Math.abs(val) < 10) return val.toFixed(2);
+  return Math.round(val).toString();
+}
+
+function initKnobs() {
+  document.querySelectorAll('.knob-wrapper').forEach(wrapper => {
+    const param = wrapper.dataset.param;
+    const min   = parseFloat(wrapper.dataset.min);
+    const max   = parseFloat(wrapper.dataset.max);
+    const def   = parseFloat(wrapper.dataset.default);
+    const isInt = wrapper.dataset.integer === 'true';
+    const svgEl = wrapper.querySelector('svg');
+    const valEl = wrapper.parentElement.querySelector('.knob-value');
+
+    let t = normalise(def, min, max);
+    params[param] = def;
+
+    const update = (newT) => {
+      t = Math.max(0, Math.min(1, newT));
+      let val = lerp(t, min, max);
+      if (isInt) val = Math.round(val);
+      params[param] = val;
+      valEl.textContent = formatValue(param, val);
+      buildKnobSVG(svgEl, t, params.hue);
+      if (param === 'hue') initKnobColors();
+    };
+
+    update(t);
+
+    // ── Mouse ────────────────────────────────────────────────────────────────
+    let dragStartY = null, tStart = null;
+
+    wrapper.addEventListener('mousedown', e => {
+      e.preventDefault();
+      dragStartY = e.clientY;
+      tStart = t;
+    });
+
+    wrapper.addEventListener('dblclick', () => update(normalise(def, min, max)));
+
+    wrapper.addEventListener('wheel', e => {
+      e.preventDefault();
+      update(t + (e.deltaY > 0 ? -0.025 : 0.025));
+    }, { passive: false });
+
+    window.addEventListener('mousemove', e => {
+      if (dragStartY === null) return;
+      update(tStart + (dragStartY - e.clientY) / 180);
+    });
+
+    window.addEventListener('mouseup', () => { dragStartY = null; });
+
+    // ── Touch ─────────────────────────────────────────────────────────────────
+    let activeTouchId = null, touchStartY = null, tStartTouch = null;
+
+    wrapper.addEventListener('touchstart', e => {
+      e.preventDefault();                      // stop page scroll & zoom
+      if (activeTouchId !== null) return;
+      const touch = e.changedTouches[0];
+      activeTouchId = touch.identifier;
+      touchStartY   = touch.clientY;
+      tStartTouch   = t;
+    }, { passive: false });
+
+    wrapper.addEventListener('touchmove', e => {
+      e.preventDefault();
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === activeTouchId) {
+          update(tStartTouch + (touchStartY - touch.clientY) / 160);
+          break;
+        }
+      }
+    }, { passive: false });
+
+    wrapper.addEventListener('touchend', e => {
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === activeTouchId) {
+          activeTouchId = null;
+          break;
+        }
+      }
+    });
+
+    // Double-tap to reset
+    let lastTap = 0;
+    wrapper.addEventListener('touchend', e => {
+      const now = Date.now();
+      if (now - lastTap < 300) update(normalise(def, min, max));
+      lastTap = now;
+    });
+  });
+}
+
+function initKnobColors() {
+  document.querySelectorAll('.knob-wrapper').forEach(wrapper => {
+    buildKnobSVG(
+      wrapper.querySelector('svg'),
+      normalise(params[wrapper.dataset.param], parseFloat(wrapper.dataset.min), parseFloat(wrapper.dataset.max)),
+      params.hue
+    );
+  });
+}
+
+// ─── Mode buttons ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    mode = btn.dataset.mode;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('handle-mode-name').textContent = btn.textContent;
+    // Reset mode-specific state
+    particles.length = 0;
+    stars.length = 0;
+    blobNoise = [];
+    spectroOffscreen = null;
+    ctx.fillStyle = '#0a0a0f';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  });
+});
+
+// ─── Collapse / expand controls ───────────────────────────────────────────────
+const controlsEl = document.getElementById('controls');
+const innerEl    = document.getElementById('controls-inner');
+
+function setInnerHeight() {
+  // Set explicit pixel height so CSS transition works
+  innerEl.style.maxHeight = controlsEl.classList.contains('collapsed')
+    ? '0px'
+    : innerEl.scrollHeight + 'px';
+}
+
+document.getElementById('controls-handle').addEventListener('click', () => {
+  controlsEl.classList.toggle('collapsed');
+  setInnerHeight();
+});
+
+// Initialise inner height after first paint
+requestAnimationFrame(() => { innerEl.style.maxHeight = innerEl.scrollHeight + 'px'; });
+
+// ─── Service Worker ───────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+initKnobs();
+document.querySelector('[data-param="hue"]').addEventListener('wheel', () => setTimeout(initKnobColors, 0));
+</script>
+</body>
+</html>
