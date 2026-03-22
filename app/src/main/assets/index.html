@@ -1206,19 +1206,7 @@ function drawPhotoBar(W, H, freqData, hue, glow) {
   ctx.fillStyle = '#0a0005';
   ctx.fillRect(0, 0, W, H);
 
-  if (!photoLoaded) {
-    ctx.fillStyle = 'rgba(255,0,70,0.12)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#ff0046';
-    ctx.textAlign = 'center';
-    ctx.font = `bold ${W * 0.045}px 'Courier New', monospace`;
-    ctx.fillText('TAP "LOAD PHOTO"', W / 2, H / 2 - 16);
-    ctx.font = `${W * 0.03}px 'Courier New', monospace`;
-    ctx.fillStyle = '#664';
-    ctx.fillText('to use your image as bar colors', W / 2, H / 2 + 20);
-    ctx.textAlign = 'left';
-    return;
-  }
+  if (!photoLoaded) return;
 
   // Faint image background
   const iAsp = photoImageEl.naturalWidth / photoImageEl.naturalHeight;
