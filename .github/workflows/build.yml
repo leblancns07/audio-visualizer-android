@@ -19,18 +19,13 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ubuntu-latest already has Android SDK, platform-tools,
-      # build-tools;34.0.0, and platforms;android-34 pre-installed.
-      # We just need to point AGP at it.
-      - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Debug SDK layout
+      - name: Install SDK components
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls "$ANDROID_HOME"
-          ls "$ANDROID_HOME/build-tools" || true
-          ls "$ANDROID_HOME/platforms"   || true
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Download Gradle 8.6
         run: |
