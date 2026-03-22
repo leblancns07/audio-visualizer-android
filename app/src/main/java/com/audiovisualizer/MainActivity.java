@@ -1,13 +1,15 @@
 package com.audiovisualizer;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
-import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -18,7 +20,10 @@ import androidx.core.content.ContextCompat;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
-    private static final int MIC_PERMISSION_CODE = 1;
+    private static final int MIC_PERMISSION_CODE  = 1;
+    private static final int FILE_CHOOSER_CODE    = 2;
+
+    private ValueCallback<Uri[]> filePathCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,11 +65,32 @@ public class MainActivity extends AppCompatActivity {
         s.setDatabaseEnabled(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        // Grant microphone permission automatically to WebView
         webView.setWebChromeClient(new WebChromeClient() {
+            // Grant microphone permission automatically to WebView
             @Override
             public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> request.grant(request.getResources()));
+            }
+
+            // Allow the WebView file input to open the system file picker
+            @Override
+            public boolean onShowFileChooser(WebView wv,
+                    ValueCallback<Uri[]> callback,
+                    FileChooserParams params) {
+                // Cancel any pending callback
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
+                }
+                filePathCallback = callback;
+
+                Intent intent = params.createIntent();
+                try {
+                    startActivityForResult(intent, FILE_CHOOSER_CODE);
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    return false;
+                }
+                return true;
             }
         });
 
@@ -77,6 +103,18 @@ public class MainActivity extends AppCompatActivity {
         }
 
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILE_CHOOSER_CODE) {
+            Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+            if (filePathCallback != null) {
+                filePathCallback.onReceiveValue(results);
+                filePathCallback = null;
+            }
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     @Override
