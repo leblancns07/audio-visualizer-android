@@ -236,6 +236,8 @@
 
 <div id="canvas-container">
   <canvas id="canvas"></canvas>
+  <button id="photo-load-btn" style="display:none;position:absolute;top:10px;right:10px;background:transparent;border:1px solid #ff0046;color:#ff0046;font-family:'Courier New',monospace;font-size:0.65rem;letter-spacing:0.12em;padding:6px 14px;cursor:pointer;z-index:5;text-transform:uppercase;-webkit-tap-highlight-color:transparent">Load Photo</button>
+  <input type="file" id="photo-input" accept="image/*" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0">
   <div id="start-overlay">
     <h1>Audio Visualizer</h1>
     <p>Microphone access required</p>
@@ -270,6 +272,12 @@
       <button class="mode-btn" data-mode="blob">Blob</button>
       <button class="mode-btn" data-mode="tunnel">Tunnel</button>
       <button class="mode-btn" data-mode="constellation">Stars</button>
+      <button class="mode-btn" data-mode="plasma">Plasma</button>
+      <button class="mode-btn" data-mode="dna">DNA</button>
+      <button class="mode-btn" data-mode="ripple">Ripple</button>
+      <button class="mode-btn" data-mode="matrix">Matrix</button>
+      <button class="mode-btn" data-mode="vortex">Vortex</button>
+      <button class="mode-btn" data-mode="photo">Photo</button>
     </div>
 
     <!-- Knob strip (horizontal scroll) -->
@@ -347,7 +355,7 @@
 const params = {
   gain: 2,
   smoothing: 0.5,
-  hue: 270,
+  hue: 340,
   detail: 128,
   glow: 12,
   speed: 0.5,
@@ -370,6 +378,17 @@ let spectroCtx = null;
 let blobNoise = [];             // used by "blob" mode
 let tunnelPhase = 0;            // used by "tunnel" mode
 let lissPhase = 0;              // used by "lissajous" mode
+
+// New mode state
+let plasmaTime = 0;
+let plasmaBuffer = null, plasmaBufCtx = null;
+let dnaPhase = 0;
+let rippleRings = [];
+let matrixDrops = [];
+let vortexTime = 0;
+let photoLoaded = false;
+let photoPixelData = null, photoW = 0, photoH = 0;
+let photoImageEl = null;
 
 const MAX_PARTICLES = 200;
 const MAX_STARS = 160;
@@ -428,7 +447,7 @@ document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('start-overlay').innerHTML = `
       <h1 style="color:#f87171">Permission Denied</h1>
       <p style="color:#888;font-size:0.8rem;max-width:420px;text-align:center;line-height:1.7">${msg.replace(/\n/g,'<br>')}</p>
-      <button id="start-btn" style="margin-top:8px;padding:12px 36px;background:transparent;border:1px solid #a78bfa;color:#a78bfa;font-family:inherit;font-size:0.9rem;letter-spacing:0.2em;cursor:pointer;text-transform:uppercase">Try Again</button>
+      <button id="start-btn" style="margin-top:8px;padding:12px 36px;background:transparent;border:1px solid #ff0046;color:#ff0046;font-family:inherit;font-size:0.9rem;letter-spacing:0.2em;cursor:pointer;text-transform:uppercase">Try Again</button>
     `;
     document.getElementById('start-btn').addEventListener('click', () => location.reload());
   }
@@ -460,11 +479,14 @@ function render() {
   const zoom   = params.zoom;
   const mirror = params.mirror > 0.5;
 
-  // Spectrogram handles its own clear; tunnel handles its own fade
-  const needsFade = mode !== 'spectrogram';
+  // Some modes manage their own clear/fade
+  const needsFade = !['spectrogram', 'plasma', 'photo'].includes(mode);
   if (needsFade) {
-    const fadeAlpha = mode === 'tunnel' ? 0.08 : mode === 'lissajous' ? 0.06 : 0.18;
-    ctx.fillStyle = `rgba(10,10,15,${fadeAlpha})`;
+    const fadeAlpha = mode === 'tunnel'    ? 0.08
+                    : mode === 'lissajous' ? 0.06
+                    : mode === 'matrix'    ? 0.04
+                    : 0.18;
+    ctx.fillStyle = `rgba(10,0,5,${fadeAlpha})`;
     ctx.fillRect(0, 0, W, H);
   }
 
@@ -482,6 +504,12 @@ function render() {
   else if (mode === 'blob')          drawBlob(W, H, freqData, hue, glow);
   else if (mode === 'tunnel')        drawTunnel(W, H, freqData, hue, glow);
   else if (mode === 'constellation') drawConstellation(W, H, freqData, hue, glow);
+  else if (mode === 'plasma')        drawPlasma(W, H, freqData, hue, glow);
+  else if (mode === 'dna')           drawDNA(W, H, freqData, hue, glow);
+  else if (mode === 'ripple')        drawRipple(W, H, freqData, hue, glow);
+  else if (mode === 'matrix')        drawMatrix(W, H, freqData, hue, glow);
+  else if (mode === 'vortex')        drawVortex(W, H, freqData, hue, glow);
+  else if (mode === 'photo')         drawPhotoBar(W, H, freqData, hue, glow);
 
   ctx.restore();
 
@@ -648,7 +676,7 @@ function drawSpectrogram(W, H, freqData, hue) {
     spectroOffscreen.width  = W;
     spectroOffscreen.height = H;
     spectroCtx = spectroOffscreen.getContext('2d');
-    spectroCtx.fillStyle = '#0a0a0f';
+    spectroCtx.fillStyle = '#0a0005';
     spectroCtx.fillRect(0, 0, W, H);
   }
 
@@ -909,6 +937,327 @@ function drawConstellation(W, H, freqData, hue, glow) {
   ctx.shadowBlur = 0;
 }
 
+// ─── HSL helper ───────────────────────────────────────────────────────────────
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2*l - 1)) * s;
+  const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+  const m = l - c / 2;
+  let r, g, b;
+  const h6 = h * 6;
+  if      (h6 < 1) { r=c; g=x; b=0; }
+  else if (h6 < 2) { r=x; g=c; b=0; }
+  else if (h6 < 3) { r=0; g=c; b=x; }
+  else if (h6 < 4) { r=0; g=x; b=c; }
+  else if (h6 < 5) { r=x; g=0; b=c; }
+  else             { r=c; g=0; b=x; }
+  return [(r+m)*255|0, (g+m)*255|0, (b+m)*255|0];
+}
+
+// ─── Plasma ───────────────────────────────────────────────────────────────────
+function drawPlasma(W, H, freqData, hue, glow) {
+  const SCALE = 8;
+  const pw = Math.ceil(W / SCALE), ph = Math.ceil(H / SCALE);
+
+  if (!plasmaBuffer || plasmaBuffer.width !== pw || plasmaBuffer.height !== ph) {
+    plasmaBuffer = document.createElement('canvas');
+    plasmaBuffer.width = pw; plasmaBuffer.height = ph;
+    plasmaBufCtx = plasmaBuffer.getContext('2d');
+  }
+
+  const energy = bandEnergy(freqData, 0, 1);
+  const t = plasmaTime;
+  const hn = hue / 360;
+  const imageData = plasmaBufCtx.createImageData(pw, ph);
+  const d = imageData.data;
+
+  for (let y = 0; y < ph; y++) {
+    for (let x = 0; x < pw; x++) {
+      const nx = x / pw, ny = y / ph;
+      const v = Math.sin(nx * 8 + t) * 0.25
+              + Math.sin(ny * 6 + t * 0.9) * 0.25
+              + Math.sin((nx + ny) * 5 + t * 1.2) * 0.25
+              + Math.sin(Math.sqrt((nx-0.5)*(nx-0.5)+(ny-0.5)*(ny-0.5))*10+t*0.8) * 0.25;
+      const h = ((hn + v * 0.12 + 1) % 1);
+      const s = 0.9;
+      const l = Math.max(0, Math.min(0.95, 0.12 + (v + 1) * 0.28 + energy * 0.1));
+      const [r, g, b] = hslToRgb(h, s, l);
+      const i = (y * pw + x) * 4;
+      d[i] = r; d[i+1] = g; d[i+2] = b; d[i+3] = 255;
+    }
+  }
+  plasmaBufCtx.putImageData(imageData, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(plasmaBuffer, 0, 0, W, H);
+  plasmaTime += 0.022 * params.speed * (1 + energy);
+}
+
+// ─── DNA Helix ────────────────────────────────────────────────────────────────
+function drawDNA(W, H, freqData, hue, glow) {
+  const cx = W / 2;
+  const RUNGS = 32;
+  const amplitude = W * 0.28;
+
+  ctx.shadowBlur = glow;
+
+  for (let i = 0; i < RUNGS; i++) {
+    const t = i / (RUNGS - 1);
+    const y = t * H;
+    const phase = t * Math.PI * 5 + dnaPhase;
+    const depth = Math.sin(phase);
+
+    const x1 = cx + Math.cos(phase) * amplitude;
+    const x2 = cx + Math.cos(phase + Math.PI) * amplitude;
+
+    const freqIdx = Math.floor(t * freqData.length * 0.7);
+    const val = freqData[freqIdx] / 255;
+
+    const h  = (hue + i * (300 / RUNGS)) % 360;
+    const h2 = (h + 50) % 360;
+    const sat = 70 + val * 30;
+    const lit = 30 + val * 40 + Math.abs(depth) * 10;
+    const alpha = 0.35 + Math.abs(depth) * 0.65;
+
+    // Rung
+    ctx.lineWidth = 1 + val * 3;
+    ctx.shadowColor = `hsl(${h},${sat}%,${lit}%)`;
+    const rg = ctx.createLinearGradient(x1, y, x2, y);
+    rg.addColorStop(0, `hsla(${h},${sat}%,${lit}%,${alpha * (0.5 + val * 0.5)})`);
+    rg.addColorStop(1, `hsla(${h2},${sat}%,${lit}%,${alpha * (0.5 + val * 0.5)})`);
+    ctx.strokeStyle = rg;
+    ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+
+    // Nodes
+    const nr = 3 + val * 5 + Math.abs(depth) * 2;
+    ctx.fillStyle = `hsla(${h},${sat}%,${lit+10}%,${alpha})`;
+    ctx.beginPath(); ctx.arc(x1, y, nr, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `hsla(${h2},${sat}%,${lit+10}%,${alpha})`;
+    ctx.beginPath(); ctx.arc(x2, y, nr, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.shadowBlur = 0;
+  dnaPhase += params.speed * 0.025;
+}
+
+// ─── Ripple ───────────────────────────────────────────────────────────────────
+function drawRipple(W, H, freqData, hue, glow) {
+  const cx = W / 2, cy = H / 2;
+  const bass   = bandEnergy(freqData, 0, 0.06);
+  const maxR   = Math.sqrt(cx*cx + cy*cy) * 1.1;
+
+  // Spawn ring on beat
+  const lastR = rippleRings.length ? rippleRings[rippleRings.length - 1].r : Infinity;
+  if (bass > 0.25 && lastR > maxR * 0.12) {
+    rippleRings.push({ r: 2, opacity: 1, h: (hue + Math.random()*50-25+360)%360, energy: bass });
+  }
+
+  ctx.shadowBlur = glow;
+
+  for (let i = rippleRings.length - 1; i >= 0; i--) {
+    const ring = rippleRings[i];
+    ring.r += (2.5 + ring.energy * 4) * params.speed;
+    ring.opacity -= 0.007 * params.speed;
+    if (ring.opacity <= 0 || ring.r > maxR) { rippleRings.splice(i, 1); continue; }
+
+    const sat = 80, lit = 40 + ring.energy * 30;
+    const alpha = ring.opacity * (0.4 + ring.energy * 0.6);
+    ctx.shadowColor = `hsl(${ring.h},${sat}%,${lit}%)`;
+    ctx.strokeStyle = `hsla(${ring.h},${sat}%,${lit}%,${alpha})`;
+    ctx.lineWidth = 1.5 + ring.energy * 3 * ring.opacity;
+
+    const POINTS = 128;
+    ctx.beginPath();
+    for (let p = 0; p <= POINTS; p++) {
+      const angle = (p / POINTS) * Math.PI * 2;
+      const fi = Math.floor((p / POINTS) * freqData.length);
+      const r  = ring.r + (freqData[fi] / 255) * ring.r * 0.1;
+      const x  = cx + Math.cos(angle) * r;
+      const y  = cy + Math.sin(angle) * r;
+      p === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+// ─── Matrix ───────────────────────────────────────────────────────────────────
+function drawMatrix(W, H, freqData, hue, glow) {
+  const CELL = 16;
+  const COLS = Math.max(1, Math.floor(W / CELL));
+
+  if (matrixDrops.length !== COLS) {
+    matrixDrops = Array.from({ length: COLS }, () => ({
+      y: -Math.random() * H,
+      speed: 1 + Math.random() * 2,
+    }));
+  }
+
+  ctx.shadowBlur = glow;
+  ctx.font = `bold ${Math.round(CELL * 0.85)}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+
+  for (let c = 0; c < COLS; c++) {
+    const fi  = Math.floor((c / COLS) * freqData.length * 0.8);
+    const val = freqData[fi] / 255;
+    const drop = matrixDrops[c];
+
+    drop.y += (drop.speed + val * 5) * params.speed;
+    if (drop.y > H + CELL * 2) drop.y = -CELL * (1 + Math.random() * 6);
+
+    const h   = (hue + c * 4) % 360;
+    const sat = 70 + val * 30;
+    const lit = 50 + val * 40;
+
+    ctx.shadowColor = `hsl(${h},${sat}%,${lit}%)`;
+    ctx.fillStyle   = `hsl(${h},${sat}%,${lit}%)`;
+    ctx.fillText(String.fromCharCode(0x30A0 + Math.random() * 96 | 0), c * CELL + CELL / 2, drop.y);
+
+    const trailLen = 6 + (val * 10 | 0);
+    for (let tr = 1; tr <= trailLen; tr++) {
+      const ty = drop.y - tr * CELL;
+      if (ty < 0) break;
+      ctx.fillStyle = `hsla(${h},${sat}%,${lit-12}%,${(1 - tr / trailLen) * (0.25 + val * 0.4)})`;
+      ctx.fillText(String.fromCharCode(0x30A0 + Math.random() * 96 | 0), c * CELL + CELL / 2, ty);
+    }
+  }
+
+  ctx.shadowBlur = 0;
+  ctx.textAlign = 'left';
+}
+
+// ─── Vortex ───────────────────────────────────────────────────────────────────
+function drawVortex(W, H, freqData, hue, glow) {
+  const cx = W / 2, cy = H / 2;
+  const bass   = bandEnergy(freqData, 0, 0.1);
+  const ARMS   = 4;
+  const STEPS  = 64;
+  const maxR   = Math.min(W, H) * 0.46 * params.zoom;
+
+  ctx.shadowBlur = glow;
+
+  for (let arm = 0; arm < ARMS; arm++) {
+    const armOff = (arm / ARMS) * Math.PI * 2;
+    let prevX = null, prevY = null;
+
+    for (let s = 1; s <= STEPS; s++) {
+      const t     = s / STEPS;
+      const angle = armOff + t * Math.PI * 3 + vortexTime;
+      const r     = t * maxR;
+      const fi    = Math.floor(t * freqData.length * 0.8);
+      const val   = freqData[fi] / 255;
+      const pulse = r * (1 + val * 0.25 * (1 + bass));
+
+      const x = cx + Math.cos(angle) * pulse;
+      const y = cy + Math.sin(angle) * pulse;
+
+      const h   = (hue + t * 90 + arm * 35) % 360;
+      const sat = 70 + val * 30;
+      const lit = 30 + val * 40;
+      const alpha = (1 - t * 0.4) * (0.3 + val * 0.7);
+      const dotR  = (1.5 + val * 4 + bass * 3) * (1 - t * 0.35);
+
+      ctx.shadowColor = `hsl(${h},${sat}%,${lit}%)`;
+      ctx.fillStyle   = `hsla(${h},${sat}%,${lit}%,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(0.5, dotR), 0, Math.PI * 2);
+      ctx.fill();
+
+      prevX = x; prevY = y;
+    }
+  }
+
+  ctx.shadowBlur = 0;
+  vortexTime += params.speed * 0.016;
+}
+
+// ─── Photo Bar ────────────────────────────────────────────────────────────────
+function loadPhoto(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    photoImageEl = img;
+    const pc = document.createElement('canvas');
+    pc.width  = img.naturalWidth;
+    pc.height = img.naturalHeight;
+    const pc2 = pc.getContext('2d');
+    pc2.drawImage(img, 0, 0);
+    const id = pc2.getImageData(0, 0, pc.width, pc.height);
+    photoPixelData = id.data;
+    photoW = pc.width;
+    photoH = pc.height;
+    photoLoaded = true;
+    document.getElementById('photo-load-btn').textContent = 'Change';
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+function samplePhoto(nx, ny) {
+  if (!photoLoaded) return [255, 0, 70];
+  const px = Math.min(Math.floor(nx * photoW), photoW - 1);
+  const py = Math.min(Math.floor(ny * photoH), photoH - 1);
+  const i  = (py * photoW + px) * 4;
+  return [photoPixelData[i], photoPixelData[i+1], photoPixelData[i+2]];
+}
+
+function drawPhotoBar(W, H, freqData, hue, glow) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0a0005';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!photoLoaded) {
+    ctx.fillStyle = 'rgba(255,0,70,0.12)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ff0046';
+    ctx.textAlign = 'center';
+    ctx.font = `bold ${W * 0.045}px 'Courier New', monospace`;
+    ctx.fillText('TAP "LOAD PHOTO"', W / 2, H / 2 - 16);
+    ctx.font = `${W * 0.03}px 'Courier New', monospace`;
+    ctx.fillStyle = '#664';
+    ctx.fillText('to use your image as bar colors', W / 2, H / 2 + 20);
+    ctx.textAlign = 'left';
+    return;
+  }
+
+  // Faint image background
+  const iAsp = photoImageEl.naturalWidth / photoImageEl.naturalHeight;
+  const cAsp = W / H;
+  let dW, dH, dX, dY;
+  if (iAsp > cAsp) { dH = H; dW = H * iAsp; dX = (W - dW) / 2; dY = 0; }
+  else             { dW = W; dH = W / iAsp; dX = 0; dY = (H - dH) / 2; }
+  ctx.globalAlpha = 0.18;
+  ctx.drawImage(photoImageEl, dX, dY, dW, dH);
+  ctx.globalAlpha = 1;
+
+  // Bars colored by image pixels
+  const count = Math.min(freqData.length, 120);
+  const barW  = (W / count) * 0.75;
+  const gap   = (W / count) * 0.25;
+  ctx.shadowBlur = glow;
+
+  for (let i = 0; i < count; i++) {
+    const val  = freqData[i] / 255;
+    const barH = val * H * 0.85;
+    if (barH < 1) continue;
+    const x = i * (barW + gap) + gap / 2;
+
+    const nx  = i / (count - 1);
+    // Sample two rows for gradient: image mid for base, top-third for tip
+    const [r1, g1, b1] = samplePhoto(nx, 0.7);
+    const [r2, g2, b2] = samplePhoto(nx, 0.2);
+
+    ctx.shadowColor = `rgb(${r1},${g1},${b1})`;
+    const grad = ctx.createLinearGradient(0, H, 0, H - barH);
+    grad.addColorStop(0, `rgba(${r1},${g1},${b1},0.95)`);
+    grad.addColorStop(1, `rgba(${r2},${g2},${b2},0.7)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, H - barH, barW, barH);
+  }
+
+  ctx.shadowBlur = 0;
+}
+
 // ─── Knobs ────────────────────────────────────────────────────────────────────
 const START_ANGLE = 135 * (Math.PI / 180);
 const END_ANGLE   = 405 * (Math.PI / 180);
@@ -933,7 +1282,7 @@ function buildKnobSVG(svgEl, t, hue) {
   const track = document.createElementNS(ns, 'path');
   track.setAttribute('d', arcPath(START_ANGLE, END_ANGLE));
   track.setAttribute('fill', 'none');
-  track.setAttribute('stroke', '#1e1e2e');
+  track.setAttribute('stroke', '#1e0014');
   track.setAttribute('stroke-width', '5');
   track.setAttribute('stroke-linecap', 'round');
   svgEl.appendChild(track);
@@ -1087,8 +1436,13 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
     stars.length = 0;
     blobNoise = [];
     spectroOffscreen = null;
-    ctx.fillStyle = '#0a0a0f';
+    rippleRings = [];
+    matrixDrops = [];
+    plasmaBuffer = null;
+    ctx.fillStyle = '#0a0005';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Show/hide photo load button
+    document.getElementById('photo-load-btn').style.display = mode === 'photo' ? 'block' : 'none';
   });
 });
 
@@ -1115,6 +1469,17 @@ requestAnimationFrame(() => { innerEl.style.maxHeight = innerEl.scrollHeight + '
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
 }
+
+// ─── Photo input ──────────────────────────────────────────────────────────────
+document.getElementById('photo-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) loadPhoto(file);
+  e.target.value = ''; // allow re-selecting same file
+});
+
+document.getElementById('photo-load-btn').addEventListener('click', () => {
+  document.getElementById('photo-input').click();
+});
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 initKnobs();
