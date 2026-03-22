@@ -7,7 +7,7 @@
 
 <!-- PWA -->
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#a78bfa">
+<meta name="theme-color" content="#ff0046">
 
 <!-- iOS PWA -->
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,7 +18,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    background: #0a0a0f;
+    background: #0a0005;
     color: #e0e0e0;
     font-family: 'Courier New', monospace;
     height: 100dvh;
@@ -44,7 +44,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(10,10,15,0.92);
+    background: rgba(10,0,5,0.92);
     z-index: 10;
     gap: 16px;
     padding: 24px;
@@ -53,7 +53,7 @@
   #start-overlay h1 {
     font-size: clamp(1.2rem, 6vw, 2rem);
     letter-spacing: 0.3em;
-    color: #a78bfa;
+    color: #ff0046;
     text-transform: uppercase;
     text-align: center;
   }
@@ -64,8 +64,8 @@
     margin-top: 8px;
     padding: 14px 40px;
     background: transparent;
-    border: 1px solid #a78bfa;
-    color: #a78bfa;
+    border: 1px solid #ff0046;
+    color: #ff0046;
     font-family: inherit;
     font-size: 1rem;
     letter-spacing: 0.2em;
@@ -75,12 +75,12 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  #start-btn:hover, #start-btn:active { background: #a78bfa22; box-shadow: 0 0 20px #a78bfa44; }
+  #start-btn:hover, #start-btn:active { background: #ff004622; box-shadow: 0 0 20px #ff004666; }
 
   /* ── Controls shell ── */
   #controls {
-    background: #0e0e16;
-    border-top: 1px solid #1e1e2e;
+    background: #0d0008;
+    border-top: 1px solid #1e0014;
     user-select: none;
     flex-shrink: 0;
     transition: max-height 0.3s cubic-bezier(.4,0,.2,1);
@@ -130,7 +130,7 @@
   .mode-btn {
     padding: 7px 14px;
     background: transparent;
-    border: 1px solid #1e1e2e;
+    border: 1px solid #1e0014;
     color: #555;
     font-family: inherit;
     font-size: 0.65rem;
@@ -144,7 +144,7 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  .mode-btn.active  { border-color: #a78bfa; color: #a78bfa; background: #a78bfa18; }
+  .mode-btn.active  { border-color: #ff0046; color: #ff0046; background: #ff004618; }
   .mode-btn:active  { opacity: 0.7; }
 
   /* ── Knob strip ── */
@@ -204,7 +204,7 @@
   #handle-mode-name {
     font-size: 0.72rem;
     letter-spacing: 0.12em;
-    color: #a78bfa;
+    color: #ff0046;
     text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
@@ -291,11 +291,11 @@
       </div>
 
       <div class="control-group">
-        <div class="knob-wrapper" data-param="hue" data-min="0" data-max="360" data-default="270">
+        <div class="knob-wrapper" data-param="hue" data-min="0" data-max="360" data-default="340">
           <svg class="knob-svg" viewBox="0 0 64 64"></svg>
         </div>
         <div class="knob-label">Hue</div>
-        <div class="knob-value">270°</div>
+        <div class="knob-value">340°</div>
       </div>
 
       <div class="control-group">

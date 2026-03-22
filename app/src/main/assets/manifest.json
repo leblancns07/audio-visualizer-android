@@ -4,8 +4,8 @@
   "description": "Microphone audio visualizer with interactive controls",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0a0f",
-  "theme_color": "#a78bfa",
+  "background_color": "#0a0005",
+  "theme_color": "#ff0046",
   "orientation": "any",
   "icons": [
     {

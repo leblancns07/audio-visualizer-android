@@ -32,7 +32,7 @@ public class MainActivity extends AppCompatActivity {
         );
 
         webView = new WebView(this);
-        webView.setBackgroundColor(Color.parseColor("#0a0a0f"));
+        webView.setBackgroundColor(Color.parseColor("#0a0005"));
         setContentView(webView);
 
         // Keep screen on while visualizing
